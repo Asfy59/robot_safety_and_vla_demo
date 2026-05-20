@@ -1,0 +1,75 @@
+# Self-contained compose for the Part I safety backend.
+#
+# ── Quick reference ────────────────────────────────────────────────────────────
+# Default start (ROS2 node):     docker compose up --build
+# Background:                    docker compose up -d
+# Logs:                          docker compose logs -f
+# Rebuild after code change:     docker compose build  (or just restart — bind-mount picks it up)
+# Shell into running container:  docker compose exec safety_backend bash
+# Stop & remove:                 docker compose down
+#
+# ── Alternative entry points (run instead of default) ──────────────────────────
+# GDK-only, no ROS2:   docker compose run safety_backend python3 safety_backend_gdk.py
+# Offline / no robot:  docker compose run safety_backend python3 safety_backend_gdk.py --config offline.yaml
+# Custom config:       docker compose run safety_backend python3 safety_backend_gdk.py --config /workspace/my.yaml
+#
+# ── Verify ROS2 topics (exec into the running container) ───────────────────────
+# docker compose exec safety_backend bash
+#   ros2 topic echo /safety/decision     # streaming JSON @ 30 Hz
+#   ros2 topic hz   /safety/decision     # should report ~30.0 Hz
+#   ros2 topic echo /safety/stop         # true=STOP, false=ok
+#
+# ── MJPEG live stream ──────────────────────────────────────────────────────────
+# http://localhost:8080/                  landing page (annotated + depth)
+# http://localhost:8080/stream/annotated  YOLO bboxes + safety state banner
+# http://localhost:8080/stream/depth      colourised depth map
+# http://localhost:8080/healthz           JSON health probe
+
+services:
+  safety_backend:
+    build:
+      # build context is part1/ so the Dockerfile can COPY safety_*.py
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: roboservice/safety-backend:0.3
+    container_name: safety_backend
+
+    # Host networking:
+    #  - gives DDS / Aorta access to the robot subnet directly
+    #  - makes port 8080 (MJPEG) available on the host without port-mapping
+    network_mode: host
+
+    environment:
+      - ROS_DOMAIN_ID=0
+      - ROS_LOCALHOST_ONLY=1
+      - PYTHONUNBUFFERED=1
+      # ── GDK runtime env ────────────────────────────────────────────────
+      # Static paths (don't depend on network topology):
+      - PYTHONPATH=/root/.cache/agibot/app/gdk/lib:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages
+      - APP_CONF_PATH=/root/.cache/agibot/app/gdk/config/app_conf.yml
+      - LD_LIBRARY_PATH=/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib:/root/.cache/agibot/app/lib:/root/.cache/agibot/app/lib/engines-3:/root/.cache/agibot/app/lib/ossl-modules:/root/.cache/agibot/app/lib/pulse-14.2/modules:/root/.cache/agibot/app/lib/pulseaudio:/root/.cache/agibot/app/lib/python3.10/lib-dynload
+      - AORTA_DISPATCHER_THREAD_NUM=6
+      # ── Robot connectivity ─────────────────────────────────────────────
+      # The entrypoint auto-detects the local IP on the robot subnet and
+      # sets LOCATOR_IP + AORTA_DISCOVERY_URI accordingly. Override these
+      # here only if auto-detection fails (e.g. unusual NIC naming).
+      #
+      # Wired (preferred): LOCATOR_IP=10.42.1.50 / URI=http://10.42.1.101:2379
+      # WiFi fallback:     LOCATOR_IP=192.168.10.181 / URI=http://192.168.10.163:2379
+      - LOCATOR_IP=${LOCATOR_IP:-192.168.10.181}
+      - AORTA_DISCOVERY_URI=${AORTA_DISCOVERY_URI:-http://192.168.10.163:2379}
+      # ── Safety tuning ──────────────────────────────────────────────────
+      # Set SAFETY_OFFLINE=1 to run with scripted distance (no robot needed).
+      - SAFETY_OFFLINE=${SAFETY_OFFLINE:-0}
+
+    volumes:
+      # Bind-mount the source tree on top of the COPY'd code so edits on
+      # the host are picked up by the next `docker compose restart`.
+      # Remove this volume to test the truly-isolated image.
+      - ..:/workspace:rw
+      # GDK runtime libraries (.so, env.sh, agibot_gdk Python module).
+      - ${HOME}/.cache/agibot:/root/.cache/agibot:rw
+
+    stdin_open: true
+    tty: true
+    restart: "no"

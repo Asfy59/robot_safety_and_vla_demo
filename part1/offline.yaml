@@ -1,0 +1,9 @@
+# Offline / no-robot override config.
+# Inherits all defaults from config.yaml except dev.offline.
+#
+# Usage:
+#   python3 safety_backend_gdk.py --config offline.yaml
+#   SAFETY_CONFIG=offline.yaml python3 safety_node.py
+
+dev:
+  offline: true

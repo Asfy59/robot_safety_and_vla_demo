@@ -1,0 +1,140 @@
+# Part I — Safety Backend Configuration
+# All tuneable parameters live here. Edit this file; no code changes needed.
+#
+# Override at runtime:
+#   python3 safety_backend_gdk.py --config /path/to/other.yaml
+#   SAFETY_CONFIG=/path/to/other.yaml python3 safety_node.py
+
+# ── Safety geometry ────────────────────────────────────────────────────────────
+safety:
+  # Hard-stop threshold (metres from base_link). Default = 2.0 m reflects
+  # the robot's max arm reach + 20 cm end-effector buffer.
+  stop_distance_m: 2.0
+
+  # Outer boundary of the slowdown zone (metres). velocity_factor ramps
+  # linearly from 0.0 (at stop_distance_m) to 1.0 (at slowdown_distance_m).
+  slowdown_distance_m: 4.0
+
+  # Temporal smoothing (hysteresis) — prevents single noisy frames from
+  # flickering the safety state, especially from fisheye detections.
+  #
+  # confirm_frames : consecutive frames a *stricter* state must be seen
+  #                  before it is latched (CLEAR→SLOW or SLOW→STOP).
+  #                  Lower = faster to trigger. At 30 Hz, 2 ≈ 67 ms.
+  # release_frames : consecutive frames a *looser* state must be seen
+  #                  before releasing (STOP→SLOW or SLOW→CLEAR).
+  #                  Higher = slower to release. At 30 Hz, 10 ≈ 333 ms.
+  confirm_frames: 2
+  release_frames: 20
+
+  # After STOP, hold effective STOP until operator clicks "Clear STOP" on the
+  # MJPEG page (or POST /api/reset). Raw/filtered states still update live.
+  enable_operator_latch: true
+
+# ── Perception ─────────────────────────────────────────────────────────────────
+perception:
+  # Decision + frame-grab rate in Hz.
+  rate_hz: 30.0
+
+  # Stale-frame fail-safe: if no new camera frame arrives within this many
+  # seconds the backend escalates to STOP immediately.
+  stale_timeout_s: 1.0
+
+  # YOLOv8-pose model weights file. "yolov8n-pose.pt" is downloaded
+  # automatically on first run if not present.
+  yolo_model: "yolov8n-pose.pt"
+
+  # YOLO inference resolution (px, shorter side). Lower = faster on CPU.
+  #   320 → ~50 ms/frame on CPU  (good for RGB-D at 1280×720)
+  #   640 → ~200 ms/frame on CPU (better for fisheye at 1920×1536)
+  yolo_imgsz: 320
+
+  # Separate imgsz for fisheye cameras — they are higher resolution and
+  # heavily distorted, so YOLO needs more pixels to detect reliably.
+  yolo_imgsz_fisheye: 640
+
+  # Minimum YOLO keypoint confidence to use a point for distance estimation.
+  keypoint_conf_threshold: 0.3
+
+  # Which skeleton keypoints to use for the distance estimate.
+  #
+  # ── COCO-17 keypoint index reference ──────────────────────────────────────
+  #  Head      :  0=nose  1=left_eye   2=right_eye  3=left_ear   4=right_ear
+  #  Torso     :  5=left_shoulder      6=right_shoulder
+  #               11=left_hip          12=right_hip
+  #  Arms      :  7=left_elbow         8=right_elbow
+  #               9=left_wrist        10=right_wrist      ← noisy (arm swing)
+  #  Legs      : 13=left_knee         14=right_knee
+  #              15=left_ankle        16=right_ankle      ← noisy (foot swing)
+  #
+  # ── Preset names ──────────────────────────────────────────────────────────
+  #  "core"   [default] — indices [5,6,7,8,11,12,13,14]
+  #              Shoulders + elbows + hips + knees.
+  #              Excludes wrists & ankles (noisy extremities).
+  #              Best balance of sensitivity and noise rejection.
+  #
+  #  "torso"  — indices [5,6,11,12]
+  #              Shoulders + hips only.
+  #              Most stable; use in busy/noisy environments.
+  #
+  #  "all"    — indices [0..16], all 17 COCO keypoints.
+  #              Most sensitive (catches a reaching wrist before the STOP zone).
+  #              Higher noise from swinging arms and feet.
+  #
+  # ── Custom list ───────────────────────────────────────────────────────────
+  #  Pass a YAML list of indices to use exactly those keypoints, e.g.:
+  #    keypoints: [5, 6, 7, 8, 11, 12]   # shoulders + elbows + hips (no legs)
+  #    keypoints: [5, 6, 11, 12, 13, 14] # torso + knees (no arms at all)
+  #    keypoints: [0, 5, 6, 11, 12]      # nose + torso (head visible = closer)
+  #
+  keypoints: "core"
+
+  # ── Wide-FOV extension: fisheye cameras + LiDAR ───────────────────────────
+  # When disabled (default) the backend uses only the head RGB-D camera (front).
+  # Enabling both paths adds 360° coverage with no changes to safety_logic.py:
+  # the final distance is min(rgbd_distance, fisheye_lidar_distance).
+  #
+  # use_fisheye: activate kHeadLeft/Right/BackFisheye (requires develop mode on
+  #   the robot). Fisheye frames are streamed via MJPEG on /stream/fisheye/<name>.
+  #   Requires SSH access to the robot to toggle develop/base mode.
+  #
+  # use_lidar:   use kLidarFront point cloud for depth at fisheye keypoints.
+  #   When false, fisheye detections are visualised but do not contribute a
+  #   distance (no metric depth without LiDAR).
+  #
+  # fisheye_cameras: subset of ["left", "right", "back"] to activate.
+  #   All three = full 360° coverage.  "back" alone adds rear hemisphere only.
+  #
+  # lidar_stale_timeout_s: if no LiDAR scan arrives within this window the
+  #   fisheye+LiDAR path is silently skipped (no FAILSAFE — RGB-D is still live).
+  #   Typical LiDAR rate is 10 Hz so 0.5 s = 5 missed scans.
+  #
+  # lidar_search_radius_px: radius (pixels) around a YOLO keypoint to search
+  #   for projected LiDAR points.  Larger = more tolerant of calibration offset;
+  #   smaller = more precise surface association.
+  #
+  # robot_ip: SSH host used to toggle develop/base mode for fisheye activation.
+  use_fisheye: true
+  use_lidar: true
+  fisheye_cameras: ["left", "right", "back"]
+  lidar_stale_timeout_s: 0.5
+  lidar_search_radius_px: 10
+  robot_ip: "10.42.1.101"
+
+# ── MJPEG live stream ──────────────────────────────────────────────────────────
+mjpeg:
+  # HTTP port for the live annotated stream.
+  port: 8080
+
+  # JPEG compression quality (1-95). Lower = smaller, faster; higher = sharper.
+  jpeg_quality: 75
+
+  # Depth colourisation range (metres). Pixels outside this range saturate.
+  depth_vis_min_m: 0.3
+  depth_vis_max_m: 6.0
+
+# ── Development / testing ──────────────────────────────────────────────────────
+dev:
+  # Set to true to skip GDK/YOLO and use a scripted sine-wave distance instead.
+  # Useful for local testing without a robot.
+  offline: false

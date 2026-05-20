@@ -1,0 +1,32 @@
+# Recorded sensor data is bulky and per-machine.
+data/recordings/
+outputs/
+
+# Python bytecode and caches.
+__pycache__/
+*.pyc
+
+# Virtualenvs (we develop inside the container, but just in case).
+.venv/
+venv/
+
+# IDE / editor.
+.idea/
+.vscode/
+.DS_Store
+
+# Local docker config overrides.
+docker/.env
+
+# Agibot GDK log files (written to cwd on init — transient).
+python3*.INFO
+python3*.WARNING
+python3*.ERROR
+python3*.log.*
+
+# YOLO model weights — large binary, downloaded automatically on first run.
+*.pt
+*.onnx
+
+# Pytest cache.
+.pytest_cache/

@@ -1,0 +1,20 @@
+# Runtime dependencies for the Part I safety backend.
+# The GDK core (.so libraries) is mounted from the host — only Python deps go here.
+
+# Required by GDK internals (pinned — GDK is strict about this version)
+protobuf==5.28.3
+
+# Vision + science stack
+numpy>=1.19.0,<2.0
+opencv-python>4.11
+scipy
+
+# YAML config file parsing
+pyyaml
+
+# MJPEG HTTP endpoint
+flask
+
+# Human detection (YOLOv8-pose)
+ultralytics
+
